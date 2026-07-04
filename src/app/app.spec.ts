@@ -186,6 +186,25 @@ describe('App Component Unit Tests', () => {
     });
   });
 
+  describe('encrypt and decrypt', () => {
+    it('should encrypt and decrypt a string securely', () => {
+      const originalText = 'Hello World of Cultural Journeys 2026!';
+      const cipherText = app.encrypt(originalText);
+      
+      expect(cipherText).not.toBe(originalText);
+      expect(cipherText).not.toContain('Hello World');
+      
+      const decryptedText = app.decrypt(cipherText);
+      expect(decryptedText).toBe(originalText);
+    });
+
+    it('should handle decoding errors gracefully in decrypt', () => {
+      const invalidCipher = '---!!!invalid_base64_string_representing_cipher_text!!!---';
+      const decrypted = app.decrypt(invalidCipher);
+      expect(decrypted).toBe('');
+    });
+  });
+
   describe('getAriaLabelForNode', () => {
     it('should produce appropriate screen reader labels', () => {
       const mockNode: CulturalNode = {

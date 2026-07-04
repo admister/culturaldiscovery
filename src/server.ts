@@ -28,7 +28,18 @@ app.post('/api/culture', async (req, res) => {
       return res.status(400).json({ error: 'Location query is required.' });
     }
 
-    const norm = location.toLowerCase().trim();
+    // Security: Validate maximum query length to prevent abuse or prompt injection attacks
+    if (location.length > 80) {
+      return res.status(400).json({ error: 'Location query is too long. Maximum allowed length is 80 characters.' });
+    }
+
+    // Security: Sanitize the query to keep only safe characters (alphanumeric, spaces, commas, hyphens, periods)
+    const sanitizedLocation = location.replace(/[^a-zA-Z0-9\s,.-]/g, '').trim();
+    if (!sanitizedLocation) {
+      return res.status(400).json({ error: 'Location query contains invalid or unsafe characters.' });
+    }
+
+    const norm = sanitizedLocation.toLowerCase();
 
     // Check pre-defined fallback keys
     let matchedKey = '';

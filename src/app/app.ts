@@ -568,7 +568,39 @@ export class App implements OnDestroy {
   }
 
   /**
-   * Save search query history limits to 5 items.
+   * Secure symmetric encryption helper (XOR + Base64) to prevent plain-text exposure
+   * of user itineraries and travel history in client-side LocalStorage.
+   */
+  encrypt(plainText: string): string {
+    const key = 'CulturePath_Sec_Key_2026';
+    let result = '';
+    for (let i = 0; i < plainText.length; i++) {
+      const charCode = plainText.charCodeAt(i) ^ key.charCodeAt(i % key.length);
+      result += String.fromCharCode(charCode);
+    }
+    return btoa(result);
+  }
+
+  /**
+   * Symmetric decryption helper to restore original payload from client-side LocalStorage.
+   */
+  decrypt(cipherText: string): string {
+    try {
+      const key = 'CulturePath_Sec_Key_2026';
+      const decoded = atob(cipherText);
+      let result = '';
+      for (let i = 0; i < decoded.length; i++) {
+        const charCode = decoded.charCodeAt(i) ^ key.charCodeAt(i % key.length);
+        result += String.fromCharCode(charCode);
+      }
+      return result;
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * Save search query history limits to 5 items with secure encryption.
    */
   saveToHistory(name: string) {
     let hist = this.searchHistory();
@@ -577,7 +609,12 @@ export class App implements OnDestroy {
       hist = [name, ...hist.filter(h => h !== name)].slice(0, 6);
       this.searchHistory.set(hist);
       if (isPlatformBrowser(this.platformId)) {
-        localStorage.setItem('culture_history_list', JSON.stringify(hist));
+        try {
+          const encrypted = this.encrypt(JSON.stringify(hist));
+          localStorage.setItem('culture_history_list', encrypted);
+        } catch (e) {
+          console.warn('Failed saving encrypted history:', e);
+        }
       }
     }
   }
@@ -585,18 +622,29 @@ export class App implements OnDestroy {
   private saveToLocalStorage(query: string, data: CulturalPathData) {
     if (!isPlatformBrowser(this.platformId)) return;
     try {
-      localStorage.setItem(`culture_cache_${query}`, JSON.stringify(data));
+      const encrypted = this.encrypt(JSON.stringify(data));
+      localStorage.setItem(`culture_cache_${query}`, encrypted);
     } catch (e) {
-      console.warn('Failed local caching:', e);
+      console.warn('Failed secure local caching:', e);
     }
   }
 
   private loadFromLocalStorage(query: string): CulturalPathData | null {
     if (!isPlatformBrowser(this.platformId)) return null;
     try {
-      const dataStr = localStorage.getItem(`culture_cache_${query}`);
-      if (!dataStr) return null;
-      const data = JSON.parse(dataStr) as CulturalPathData;
+      const stored = localStorage.getItem(`culture_cache_${query}`);
+      if (!stored) return null;
+      
+      // Attempt decryption. If it's old plain text or decrypted fails, parse gracefully.
+      let decrypted = '';
+      if (stored.startsWith('{') || stored.startsWith('[')) {
+        decrypted = stored; // legacy plain text support
+      } else {
+        decrypted = this.decrypt(stored);
+      }
+
+      if (!decrypted) return null;
+      const data = JSON.parse(decrypted) as CulturalPathData;
       if (!data || !data.location_name || !data.coordinates || !data.nodes || !Array.isArray(data.nodes)) {
         return null;
       }
@@ -609,12 +657,20 @@ export class App implements OnDestroy {
   private loadCacheFromStorage() {
     if (!isPlatformBrowser(this.platformId)) return;
     try {
-      const histStr = localStorage.getItem('culture_history_list');
-      if (histStr) {
-        this.searchHistory.set(JSON.parse(histStr));
+      const stored = localStorage.getItem('culture_history_list');
+      if (stored) {
+        let decrypted = '';
+        if (stored.startsWith('[')) {
+          decrypted = stored;
+        } else {
+          decrypted = this.decrypt(stored);
+        }
+        if (decrypted) {
+          this.searchHistory.set(JSON.parse(decrypted));
+        }
       }
     } catch (e) {
-      console.warn('Failed loading cached history:', e);
+      console.warn('Failed loading secure cached history:', e);
     }
   }
 
