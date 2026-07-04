@@ -251,4 +251,11 @@ describe('App Component Unit Tests', () => {
       expect(label).toContain('heritage');
     });
   });
+
+  describe('getGoogleMapsDirUrl', () => {
+    it('should construct a valid Google Maps directions URL with coordinates', () => {
+      const url = app.getGoogleMapsDirUrl(35.0116, 135.7681);
+      expect(url).toBe('https://www.google.com/maps/dir/?api=1&destination=35.0116,135.7681');
+    });
+  });
 });

@@ -154,11 +154,21 @@
             </div>
             
             <!-- Quick Tips Badge Carousel -->
-            <div class="flex flex-wrap gap-1.5">
+            <div class="flex flex-wrap gap-2 items-center">
               <span class="px-2.5 py-1 rounded-full bg-cream border border-sand text-[10px] text-sage font-mono flex items-center gap-1 font-semibold">
                 <mat-icon class="text-xs text-terracotta">location_on</mat-icon>
                 {{ data.coordinates.lat.toFixed(2) }}°, {{ data.coordinates.lng.toFixed(2) }}°
               </span>
+              <a
+                [href]="getGoogleMapsDirUrl(data.coordinates.lat, data.coordinates.lng)"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="px-3 py-1.5 rounded-xl bg-sage hover:bg-sage/90 active:bg-sage text-white text-[11px] font-bold tracking-wide transition-all flex items-center gap-1.5 shadow-sm"
+                id="destinationNavigateBtn"
+              >
+                <mat-icon class="text-sm">navigation</mat-icon>
+                Navigate
+              </a>
             </div>
           </div>
 
@@ -544,6 +554,18 @@
               <div class="mt-2 text-[10px] text-sage/70 font-mono flex items-center gap-1">
                 <mat-icon class="text-[10px] text-sage/60">my_location</mat-icon>
                 <span>MAPPED AT: lat {{ node.lat.toFixed(4) }} / lng {{ node.lng.toFixed(4) }}</span>
+              </div>
+              <div class="mt-3 flex">
+                <a
+                  [href]="getGoogleMapsDirUrl(node.lat, node.lng)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="w-full text-center px-4 py-2 rounded-xl bg-sage hover:bg-sage/90 active:bg-sage text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-md cursor-pointer"
+                  id="nodeNavigateBtn"
+                >
+                  <mat-icon class="text-sm">navigation</mat-icon>
+                  Navigate to {{ node.title }}
+                </a>
               </div>
             </div>
           </div>

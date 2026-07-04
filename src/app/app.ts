@@ -165,6 +165,13 @@ export class App implements OnDestroy {
   }
 
   /**
+   * Generates a Google Maps Direction URL using coordinates.
+   */
+  getGoogleMapsDirUrl(lat: number, lng: number): string {
+    return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+  }
+
+  /**
    * Switches map tile layer depending on active theme (Positron vs. Dark Matter)
    */
   updateMapTiles() {
@@ -238,20 +245,27 @@ export class App implements OnDestroy {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   parseFloatCoords(val: any): number {
     if (val === undefined || val === null) return NaN;
-    if (typeof val === 'number') return val;
-    if (typeof val === 'string') {
-      const direct = parseFloat(val);
-      if (!isNaN(direct) && /^-?\d+(\.\d+)?$/.test(val.trim())) return direct;
-      
-      const cleaned = val.replace(/[^0-9.-]/g, '');
-      const parsed = parseFloat(cleaned);
-      if (!isNaN(parsed)) {
-        const lower = val.toLowerCase();
-        if (lower.includes('s') || lower.includes('w')) {
-          return -Math.abs(parsed);
-        }
-        return parsed;
+    if (typeof val === 'number') {
+      return isNaN(val) ? NaN : val;
+    }
+    const str = String(val).trim();
+    if (!str || str.toLowerCase() === 'nan') return NaN;
+    
+    // Try to parse direct float
+    const direct = parseFloat(str);
+    if (!isNaN(direct) && /^-?\d+(\.\d+)?$/.test(str)) {
+      return direct;
+    }
+
+    // Clean other formats like "34.5 S" or "120.5W"
+    const cleaned = str.replace(/[^0-9.-]/g, '');
+    const parsed = parseFloat(cleaned);
+    if (!isNaN(parsed)) {
+      const lower = str.toLowerCase();
+      if (lower.includes('s') || lower.includes('w')) {
+        return -Math.abs(parsed);
       }
+      return parsed;
     }
     return NaN;
   }
@@ -262,13 +276,21 @@ export class App implements OnDestroy {
   sanitizeAndSetData(data: CulturalPathData) {
     if (!data) return;
 
+    // Create a clone to prevent mutating any potentially read-only/frozen objects
+    let cleanData: CulturalPathData;
+    try {
+      cleanData = JSON.parse(JSON.stringify(data)) as CulturalPathData;
+    } catch {
+      cleanData = { ...data };
+    }
+
     // Sanitize central coordinates
-    let lat = this.parseFloatCoords(data.coordinates?.lat);
-    let lng = this.parseFloatCoords(data.coordinates?.lng);
+    let lat = this.parseFloatCoords(cleanData.coordinates?.lat);
+    let lng = this.parseFloatCoords(cleanData.coordinates?.lng);
 
     if (isNaN(lat) || isNaN(lng)) {
       console.warn('[CulturePath Map] Primary coordinates are invalid. Attempting fallback to first valid node.');
-      const firstValidNode = data.nodes?.find(n => !isNaN(this.parseFloatCoords(n.lat)) && !isNaN(this.parseFloatCoords(n.lng)));
+      const firstValidNode = cleanData.nodes?.find(n => !isNaN(this.parseFloatCoords(n.lat)) && !isNaN(this.parseFloatCoords(n.lng)));
       if (firstValidNode) {
         lat = this.parseFloatCoords(firstValidNode.lat);
         lng = this.parseFloatCoords(firstValidNode.lng);
@@ -279,11 +301,11 @@ export class App implements OnDestroy {
       }
     }
     
-    data.coordinates = { lat, lng };
+    cleanData.coordinates = { lat, lng };
 
     // Sanitize node coordinates
-    if (data.nodes && Array.isArray(data.nodes)) {
-      data.nodes.forEach(node => {
+    if (cleanData.nodes && Array.isArray(cleanData.nodes)) {
+      cleanData.nodes.forEach(node => {
         let nLat = this.parseFloatCoords(node.lat);
         let nLng = this.parseFloatCoords(node.lng);
         if (isNaN(nLat) || isNaN(nLng)) {
@@ -296,7 +318,7 @@ export class App implements OnDestroy {
       });
     }
 
-    this.currentData.set(data);
+    this.currentData.set(cleanData);
   }
 
   // Voice Narration (TTS Story Reader)
@@ -363,11 +385,21 @@ export class App implements OnDestroy {
     this.markerGroup.clearLayers();
     const L = this.L;
     
-    const lat = data.coordinates.lat;
-    const lng = data.coordinates.lng;
+    let lat = this.parseFloatCoords(data.coordinates?.lat);
+    let lng = this.parseFloatCoords(data.coordinates?.lng);
+
+    if (isNaN(lat) || isNaN(lng)) {
+      console.warn('[CulturePath Map] Map markers render coordinates are invalid. Falling back to Kyoto center.');
+      lat = 35.0116;
+      lng = 135.7681;
+    }
 
     // Transition smoothly to the destination coordinates
-    this.map.flyTo([lat, lng], 13, { duration: 1.5 });
+    try {
+      this.map.flyTo([lat, lng], 13, { duration: 1.5 });
+    } catch (err) {
+      console.error('[CulturePath Map] Error flying to primary coordinates:', err);
+    }
 
     // Primary Location glowing hub icon using Terracotta
     const primaryIcon = L.divIcon({
@@ -384,14 +416,18 @@ export class App implements OnDestroy {
       iconAnchor: [16, 16]
     });
 
-    L.marker([lat, lng], { icon: primaryIcon })
-      .addTo(this.markerGroup)
-      .bindPopup(`
-        <div class="p-1 font-sans">
-          <h4 class="font-display font-extrabold text-sm text-terracotta mb-0.5">${data.location_name}</h4>
-          <p class="text-[10px] text-sage font-mono tracking-wider uppercase font-semibold">Primary Regional Center</p>
-        </div>
-      `);
+    try {
+      L.marker([lat, lng], { icon: primaryIcon })
+        .addTo(this.markerGroup)
+        .bindPopup(`
+          <div class="p-1 font-sans">
+            <h4 class="font-display font-extrabold text-sm text-terracotta mb-0.5">${data.location_name}</h4>
+            <p class="text-[10px] text-sage font-mono tracking-wider uppercase font-semibold">Primary Regional Center</p>
+          </div>
+        `);
+    } catch (err) {
+      console.error('[CulturePath Map] Error placing primary center marker:', err);
+    }
 
     // Individual Cultural Nodes - Styled with Natural Tones: Sage & Terracotta
     const configs: Record<string, { color: string; bgClass: string; borderClass: string; icon: string }> = {
@@ -403,52 +439,74 @@ export class App implements OnDestroy {
       event: { color: 'text-sage', bgClass: 'bg-sage/15', borderClass: 'border-sage', icon: 'festival' }
     };
 
-    data.nodes.forEach((node) => {
-      const nodeLat = node.lat;
-      const nodeLng = node.lng;
+    if (data.nodes && Array.isArray(data.nodes)) {
+      data.nodes.forEach((node) => {
+        const nodeLat = this.parseFloatCoords(node.lat);
+        const nodeLng = this.parseFloatCoords(node.lng);
 
-      const cfg = configs[node.type] || configs['attraction'];
-      const nodeIcon = L.divIcon({
-        className: 'node-marker-icon',
-        html: `
-          <div class="group relative flex items-center justify-center transition-all hover:scale-125 duration-200">
-            <div class="w-8 h-8 rounded-full ${cfg.bgClass} border-2 ${cfg.borderClass} flex items-center justify-center ${cfg.color} bg-cream shadow-md shadow-sage/10">
-              <span class="material-icons text-sm font-semibold">${cfg.icon}</span>
+        if (isNaN(nodeLat) || isNaN(nodeLng)) {
+          console.warn('[CulturePath Map] Node coordinates are invalid. Skipping rendering of node marker:', node.title);
+          return;
+        }
+
+        const cfg = configs[node.type] || configs['attraction'];
+        const nodeIcon = L.divIcon({
+          className: 'node-marker-icon',
+          html: `
+            <div class="group relative flex items-center justify-center transition-all hover:scale-125 duration-200">
+              <div class="w-8 h-8 rounded-full ${cfg.bgClass} border-2 ${cfg.borderClass} flex items-center justify-center ${cfg.color} bg-cream shadow-md shadow-sage/10">
+                <span class="material-icons text-sm font-semibold">${cfg.icon}</span>
+              </div>
             </div>
-          </div>
-        `,
-        iconSize: [32, 32],
-        iconAnchor: [16, 16]
-      });
+          `,
+          iconSize: [32, 32],
+          iconAnchor: [16, 16]
+        });
 
-      const marker = L.marker([nodeLat, nodeLng], { icon: nodeIcon })
-        .addTo(this.markerGroup)
-        .bindPopup(`
-          <div class="p-1.5 font-sans max-w-[200px]">
-            <div class="flex items-center gap-1 mb-1">
-              <span class="material-icons text-xs ${cfg.color}">${cfg.icon}</span>
-              <span class="text-[9px] uppercase tracking-widest font-mono text-sage font-bold">${node.type.replace('_', ' ')}</span>
-            </div>
-            <h4 class="font-display font-bold text-xs text-ink mb-1 leading-snug">${node.title}</h4>
-            <p class="text-[11px] text-ink/80 leading-normal mb-0">${node.description}</p>
-          </div>
-        `);
+        try {
+          const marker = L.marker([nodeLat, nodeLng], { icon: nodeIcon })
+            .addTo(this.markerGroup)
+            .bindPopup(`
+              <div class="p-1.5 font-sans max-w-[200px]">
+                <div class="flex items-center gap-1 mb-1">
+                  <span class="material-icons text-xs ${cfg.color}">${cfg.icon}</span>
+                  <span class="text-[9px] uppercase tracking-widest font-mono text-sage font-bold">${node.type.replace('_', ' ')}</span>
+                </div>
+                <h4 class="font-display font-bold text-xs text-ink mb-1 leading-snug">${node.title}</h4>
+                <p class="text-[11px] text-ink/80 leading-normal mb-0">${node.description}</p>
+              </div>
+            `);
 
-      // Sync map selection back to dashboard
-      marker.on('click', () => {
-        this.selectedNode.set(node);
-        this.selectedTab.set(this.getTabNameForType(node.type));
+          // Sync map selection back to dashboard
+          marker.on('click', () => {
+            this.selectedNode.set(node);
+            this.selectedTab.set(this.getTabNameForType(node.type));
+          });
+        } catch (err) {
+          console.error('[CulturePath Map] Error rendering node marker:', node.title, err);
+        }
       });
-    });
+    }
   }
 
   /**
    * Triggers map movement and opens node popup.
    */
   selectNode(node: CulturalNode) {
+    if (!node) return;
     this.selectedNode.set(node);
     if (this.map) {
-      this.map.flyTo([node.lat, node.lng], 15, { duration: 1.2 });
+      const lat = this.parseFloatCoords(node.lat);
+      const lng = this.parseFloatCoords(node.lng);
+      if (isNaN(lat) || isNaN(lng)) {
+        console.warn('[CulturePath Map] Node coordinates are invalid. Cannot trigger flyTo movement:', node.title);
+        return;
+      }
+      try {
+        this.map.flyTo([lat, lng], 15, { duration: 1.2 });
+      } catch (err) {
+        console.error('[CulturePath Map] Error in selectNode flyTo animation:', err);
+      }
     }
   }
 
