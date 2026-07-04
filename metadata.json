@@ -1,0 +1,6 @@
+{
+  "name": "CulturePath AI",
+  "description": "A GenAI-powered cultural concierge helping travelers discover local heritage, folklore, authentic cuisines, and custom-styled story nodes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

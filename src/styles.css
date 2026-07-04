@@ -1,0 +1,79 @@
+@import url('https://fonts.googleapis.com/icon?family=Material+Icons');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Helvetica Neue", Arial, "Inter", sans-serif;
+  --font-display: "Outfit", "Georgia", serif;
+  --font-serif: "Georgia", serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  /* Natural Tones Custom Palette */
+  --color-sage: #5c634d;
+  --color-terracotta: #c16a4a;
+  --color-sand: #e8e2d6;
+  --color-ink: #2d2a26;
+  --color-cream: #faf9f6;
+  --color-earth-bg: #f5f2ed;
+}
+
+/* Warm, "not too dark" Earthy Dark Theme */
+.dark {
+  --color-sage: #8f997a;
+  --color-terracotta: #d97d5a;
+  --color-sand: #3c362d;
+  --color-ink: #eae6df;
+  --color-cream: #1e1c19;
+  --color-earth-bg: #141311;
+}
+
+/* Base scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-earth-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-sand);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-sage);
+}
+
+/* Custom leaflet tweaks to blend with Natural Tones light mode */
+.leaflet-container {
+  background: var(--color-cream) !important;
+  font-family: var(--font-sans) !important;
+}
+
+.leaflet-popup-content-wrapper {
+  background: var(--color-cream) !important;
+  color: var(--color-ink) !important;
+  border: 1px solid var(--color-sand) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 4px 20px -2px rgba(92, 99, 77, 0.12) !important;
+}
+
+.leaflet-popup-tip {
+  background: var(--color-cream) !important;
+}
+
+.leaflet-bar {
+  border: none !important;
+  box-shadow: 0 4px 20px -2px rgba(92, 99, 77, 0.12) !important;
+}
+
+.leaflet-bar a {
+  background-color: var(--color-cream) !important;
+  color: var(--color-ink) !important;
+  border-bottom: 1px solid var(--color-sand) !important;
+}
+
+.leaflet-bar a:hover {
+  background-color: var(--color-sand) !important;
+  color: var(--color-sage) !important;
+}
+
+
