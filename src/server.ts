@@ -86,6 +86,11 @@ app.post('/api/culture', async (req, res) => {
 If the location provided by the user represents an unrecognized, fictitious, gibberish, or invalid geographic place on Earth, you MUST set the 'invalid_location' field to true in the returned JSON structure.
 You MUST provide coordinates (lat, lng) for the central location (usually the city center) and a rich list of 8 to 10 cultural nodes across different categories (one of: 'attraction', 'hidden_gem', 'heritage', 'food', 'shopping', 'event') for Leaflet mapping.
 Crucially, you MUST include at least 3 'attraction' nodes (famous landmarks) and at least 3 'hidden_gem' nodes (off-the-beaten-path secrets) in the 'nodes' array, and they must have accurate, authentic coordinates and descriptions.
+Each node in 'nodes' MUST include:
+- 'etiquette_tips': specific advice on local manners or social taboos for this specific node.
+- 'historical_context': brief historical context describing what this exact spot looked like 100 or 500 years ago in the past.
+- 'vibe': a category-defining sentiment or atmosphere, e.g. 'Quiet & Reflective', 'Bustling & Energetic', 'Artisan & Creative', 'Sacred & Spiritual', or 'Spirited & Lively'.
+You MUST also provide location-specific 'emergency_contacts' (local police, medical, tourist helpline, and safety tips) and a 'marketplace' containing 3 or 4 local traditional souvenirs, craft recommendations, or local heritage walks/guides.
 Ensure that the output strictly adheres to the requested JSON schema. Do not include markdown codeblocks or extra text; return ONLY the valid JSON object.`,
         responseMimeType: "application/json",
         responseSchema: {
@@ -125,9 +130,12 @@ Ensure that the output strictly adheres to the requested JSON schema. Do not inc
                   type: { type: Type.STRING, description: "One of: 'attraction', 'hidden_gem', 'heritage', 'food', 'shopping', 'event'" },
                   description: { type: Type.STRING, description: "Short 1-2 sentence sensory or historical description" },
                   lat: { type: Type.NUMBER, description: "Latitude" },
-                  lng: { type: Type.NUMBER, description: "Longitude" }
+                  lng: { type: Type.NUMBER, description: "Longitude" },
+                  etiquette_tips: { type: Type.STRING, description: "Context-specific etiquette or Local Manners advice for visitors here." },
+                  historical_context: { type: Type.STRING, description: "Description of what this location looked like 100 or 500 years ago (Then vs Now)." },
+                  vibe: { type: Type.STRING, description: "Dominant cultural sentiment, e.g. 'Quiet & Reflective', 'Bustling & Energetic', 'Artisan & Creative', or 'Sacred & Spiritual'." }
                 },
-                required: ["title", "type", "description", "lat", "lng"]
+                required: ["title", "type", "description", "lat", "lng", "etiquette_tips", "historical_context", "vibe"]
               }
             },
             impact_note: { type: Type.STRING, description: "A 1-sentence explanation of why visiting this location supports the local community." },
@@ -135,9 +143,33 @@ Ensure that the output strictly adheres to the requested JSON schema. Do not inc
               type: Type.ARRAY,
               items: { type: Type.STRING },
               description: "2-3 quick tips for visiting"
+            },
+            emergency_contacts: {
+              type: Type.OBJECT,
+              properties: {
+                police: { type: Type.STRING, description: "Local police phone number" },
+                medical: { type: Type.STRING, description: "Local medical or hospital helpline number" },
+                tourist_helpline: { type: Type.STRING, description: "Tourist helpline or safety office number" },
+                tips: { type: Type.STRING, description: "A quick, specific local safety advice, e.g. pickpockets alerts or local scam warnings." }
+              },
+              required: ["police", "medical", "tourist_helpline", "tips"]
+            },
+            marketplace: {
+              type: Type.ARRAY,
+              description: "Traditional crafts, local artisan items, traditional walks, or sovereign suggestions.",
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  item_name: { type: Type.STRING, description: "Name of craft, shop, bazaar, or heritage tour" },
+                  description: { type: Type.STRING, description: "Deep description highlighting its cultural history and artisanal background" },
+                  price_estimate: { type: Type.STRING, description: "Typical price range estimate in local currency/USD" },
+                  location_tip: { type: Type.STRING, description: "Where is the best authentic source to purchase or book this" }
+                },
+                required: ["item_name", "description", "price_estimate", "location_tip"]
+              }
             }
           },
-          required: ["location_name", "coordinates", "immersive_story", "links", "nodes", "impact_note", "quick_tips"]
+          required: ["location_name", "coordinates", "immersive_story", "links", "nodes", "impact_note", "quick_tips", "emergency_contacts", "marketplace"]
         }
       }
     });
@@ -170,6 +202,69 @@ Ensure that the output strictly adheres to the requested JSON schema. Do not inc
       _error: errMessage || 'Failed to contact Gemini API. Serving fallback/cached content.',
       _matchedFallback: !!matchedKey
     });
+  }
+});
+
+/**
+ * Endpoint for Memory Journaling / Digital Keepsake:
+ * Generates an evocative 5-paragraph Cultural Travelogue using visited landmarks and user notes.
+ */
+app.post('/api/travelogue', async (req, res) => {
+  try {
+    const { location, visits } = req.body;
+    if (!visits || !Array.isArray(visits) || visits.length === 0) {
+      return res.status(400).json({ error: 'Visits list is required to generate a travelogue.' });
+    }
+
+    const apiKey = process.env['GEMINI_API_KEY'] || '';
+    const hasRealKey = apiKey && apiKey !== 'MY_GEMINI_API_KEY' && apiKey.length > 10;
+
+    if (!hasRealKey) {
+      console.log(`[CulturePath Backend] No real GEMINI_API_KEY. Producing offline pre-crafted travelogue narrative for "${location || 'destination'}"`);
+      const visitedTitles = visits.map(v => v.title).join(', ');
+      const userReflections = visits.map(v => v.note ? `"${v.note}"` : '').filter(Boolean).join('; ');
+      
+      const offlineTravelogue = `## My Journey of Discovery in ${location || 'CulturePath'}
+      
+Today was an unforgettable exploration across some of the most profound cultural veins of the region. My steps led me through **${visitedTitles}**, weaving a deep, narrative-driven experience. Each stop felt like turning the pages of an ancient parchment, connecting the legends of the past to the living breath of the present.
+
+At these sacred sites, the air was heavy with stories. The visual and spiritual contrasts were immense—from historic architecture weathered by centuries to the bustling energy of local guardians. I found myself reflecting on the resilience of these cultural practices, noting how local artisans and caretakers carry their lineages forward with immense pride.
+
+One of the most moving aspects was feeling the distinct vibe of each location. Some places offered quiet sanctuaries for silent introspection, while others were vibrant hubs of creativity and commerce. Engaging with these spaces respectfully, keeping mindful of local etiquette, opened doors to subtle details I would have otherwise missed.
+
+Integrating my personal reflections: ${userReflections || 'taking quiet moments to absorb the surrounding sounds and details'} made this journey uniquely mine. It is more than just travel; it is a personal keepsake of connections, bridging my own story with the enduring history of this beautiful corner of the world.
+
+As the sun sets over this magnificent region, I realize that the true value of exploration lies in these silent connections. These memories remain etched as a digital keepsake of a day well-spent in the pursuit of cultural wisdom and respectful preservation.`;
+
+      return res.json({ travelogue: offlineTravelogue });
+    }
+
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
+
+    const visitsSummary = visits.map(v => `- Landmark/Site: "${v.title}". Personal keepsake note: "${v.note || 'No custom note added.'}"`).join('\n');
+    const prompt = `Create a beautiful, highly engaging, and narrative-driven 5-paragraph "Cultural Travelogue" summary based on these sites the user visited today in "${location || 'the area'}":
+\n${visitsSummary}\n
+Your writing must focus on the cultural connections, atmosphere, historical contrasts, and their personal reflections. Format the response beautifully using Markdown with clear spacing.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: prompt,
+      config: {
+        systemInstruction: "You are an award-winning travel writer and cultural historian. You weave beautiful, evocative, and deep narratives that capture the soul of a place, its heritage, and the traveler's personal connection to it. Do not use generic cliches. Write exactly 5 paragraphs in markdown.",
+      }
+    });
+
+    return res.json({ travelogue: response.text });
+  } catch (err) {
+    console.error('[CulturePath Backend] Error generating travelogue:', err);
+    return res.status(500).json({ error: 'Failed to synthesize travelogue. ' + (err instanceof Error ? err.message : '') });
   }
 });
 

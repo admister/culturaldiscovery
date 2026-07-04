@@ -15,12 +15,29 @@ import { ReactiveFormsModule, FormControl, FormGroup, Validators } from '@angula
 import { MatIconModule } from '@angular/material/icon';
 import { HttpClient } from '@angular/common/http';
 
+export interface EmergencyContacts {
+  police: string;
+  medical: string;
+  tourist_helpline: string;
+  tips: string;
+}
+
+export interface MarketplaceItem {
+  item_name: string;
+  description: string;
+  price_estimate: string;
+  location_tip: string;
+}
+
 export interface CulturalNode {
   title: string;
   type: 'attraction' | 'hidden_gem' | 'heritage' | 'food' | 'shopping' | 'event';
   description: string;
   lat: number;
   lng: number;
+  etiquette_tips?: string;        // Feature 1: local manners advice
+  historical_context?: string;    // Feature 2: Then vs Now historic context
+  vibe?: string;                  // Feature 3: community vibe sentiment
 }
 
 export interface CulturalPathData {
@@ -43,6 +60,8 @@ export interface CulturalPathData {
   nodes: CulturalNode[];
   impact_note: string;
   quick_tips: string[];
+  emergency_contacts?: EmergencyContacts; // Feature 5: Emergency contacts
+  marketplace?: MarketplaceItem[];         // Feature 5: Marketplace Souvenirs
   _isFallback?: boolean;
   _apiKeyMissing?: boolean;
   _error?: string;
@@ -66,10 +85,21 @@ export class App implements OnDestroy {
   currentData = signal<CulturalPathData | null>(null);
   loading = signal<boolean>(false);
   error = signal<string | null>(null);
-  selectedTab = signal<string>('overview'); // overview, attractions, heritage, food, events
+  selectedTab = signal<string>('overview'); // overview, attractions, heritage, food, events, marketplace, safety
   selectedNode = signal<CulturalNode | null>(null);
   searchHistory = signal<string[]>(['Kyoto, Japan', 'Paris, France', 'Cairo, Egypt', 'Rio de Janeiro, Brazil']);
   showIntro = signal<boolean>(true);
+
+  // New Features App States
+  showLocalManners = signal<boolean>(false);   // Feature 1: Local manners toggle
+  showHistoricalThen = signal<boolean>(false);  // Feature 2: Then vs Now slider/toggle
+  selectedVibeFilter = signal<string>('all');  // Feature 3: community sentiment vibe filter
+  
+  // Feature 4: Memory Journaling
+  visitedNodes = signal<Record<string, { visited: boolean, note: string, date: string }>>({});
+  travelogueResult = signal<string | null>(null);
+  generatingTravelogue = signal<boolean>(false);
+  travelogueError = signal<string | null>(null);
 
   // Active Loading messages for "Culturalizing..."
   loadingMessage = signal<string>('Mapping cultural ley lines...');
@@ -107,6 +137,7 @@ export class App implements OnDestroy {
     // Load cache and saved theme preferences on start
     afterNextRender(async () => {
       this.loadCacheFromStorage();
+      this.loadVisitedNodes();
       
       if (isPlatformBrowser(this.platformId)) {
         const savedTheme = localStorage.getItem('theme');
@@ -119,17 +150,46 @@ export class App implements OnDestroy {
       this.search('Kyoto, Japan');
     });
 
-    // React to changes in currentData to initialize/refresh map markers smoothly
+    // React to changes in mapContainer, currentData, and vibe filter to initialize/refresh map smoothly
     effect(() => {
+      const container = this.mapContainer();
       const data = this.currentData();
-      if (data && isPlatformBrowser(this.platformId)) {
-        if (!this.map) {
-          // Wait a brief tick for the template to render the #mapContainer container
-          setTimeout(async () => {
-            await this.initMap();
-          }, 100);
+      this.selectedVibeFilter(); // access to trigger reactivity!
+
+      if (isPlatformBrowser(this.platformId)) {
+        if (container && data) {
+          // If the map is not initialized yet or is associated with a different container, initialize it.
+          const needsInit = !this.map || (this.map.getContainer() !== container.nativeElement);
+          if (needsInit) {
+            if (this.map) {
+              try {
+                this.map.remove();
+              } catch (e) {
+                console.warn('[CulturePath Map] Error removing stale map:', e);
+              }
+              this.map = null;
+              this.markerGroup = null;
+              this.tileLayer = null;
+            }
+            // Wait a brief tick for the template to render/settle the mapContainer container
+            setTimeout(async () => {
+              await this.initMap();
+            }, 100);
+          } else {
+            this.renderMapMarkers(data);
+          }
         } else {
-          this.renderMapMarkers(data);
+          // Clean up if map container or data is gone (e.g. during loading)
+          if (this.map) {
+            try {
+              this.map.remove();
+            } catch (e) {
+              console.warn('[CulturePath Map] Error removing map during teardown:', e);
+            }
+            this.map = null;
+            this.markerGroup = null;
+            this.tileLayer = null;
+          }
         }
       }
     });
@@ -172,6 +232,32 @@ export class App implements OnDestroy {
   }
 
   /**
+   * Returns the dynamic navigation URL: either the selected node's coordinates,
+   * or the main destination coordinates as a default fallback.
+   */
+  getActiveNavigationUrl(): string {
+    const data = this.currentData();
+    if (!data) return '#';
+    const node = this.selectedNode();
+    if (node) {
+      return this.getGoogleMapsDirUrl(node.lat, node.lng);
+    }
+    return this.getGoogleMapsDirUrl(data.coordinates.lat, data.coordinates.lng);
+  }
+
+  /**
+   * Returns the dynamic label for the maps navigation action.
+   */
+  getActiveNavigationLabel(): string {
+    const node = this.selectedNode();
+    if (node) {
+      return `Navigate to ${node.title}`;
+    }
+    const data = this.currentData();
+    return data ? `Navigate to ${data.location_name}` : 'Navigate';
+  }
+
+  /**
    * Switches map tile layer depending on active theme (Positron vs. Dark Matter)
    */
   updateMapTiles() {
@@ -210,12 +296,24 @@ export class App implements OnDestroy {
       const container = this.mapContainer()?.nativeElement;
       if (!container) return;
 
+      const data = this.currentData();
+      let initLat = 35.0116;
+      let initLng = 135.7681;
+      if (data) {
+        const lat = this.parseFloatCoords(data.coordinates?.lat);
+        const lng = this.parseFloatCoords(data.coordinates?.lng);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          initLat = lat;
+          initLng = lng;
+        }
+      }
+
       this.map = L.map(container, {
         zoomControl: true,
         scrollWheelZoom: true,
         maxZoom: 18,
         minZoom: 2
-      }).setView([35.0116, 135.7681], 13); // Centered on Kyoto initially
+      }).setView([initLat, initLng], 13);
 
       // Set initial tiles based on current theme
       this.updateMapTiles();
@@ -223,7 +321,6 @@ export class App implements OnDestroy {
       this.markerGroup = L.layerGroup().addTo(this.map);
 
       // Render markers if data was loaded prior to map initialization completion
-      const data = this.currentData();
       if (data) {
         this.renderMapMarkers(data);
       }
@@ -377,7 +474,28 @@ export class App implements OnDestroy {
   }
 
   /**
-   * Cleans and renders new markers on the interactive map.
+   * Helper to retrieve specific visual classes and icons for different "Vibes".
+   */
+  getVibeStyle(vibe?: string): { bgClass: string; borderClass: string; textClass: string; colorHex: string; icon: string } {
+    const v = (vibe || '').toLowerCase();
+    if (v.includes('quiet') || v.includes('reflective') || v.includes('peaceful') || v.includes('calm')) {
+      return { bgClass: 'bg-emerald-500/15', borderClass: 'border-emerald-500', textClass: 'text-emerald-600 dark:text-emerald-400', colorHex: '#10b981', icon: 'filter_vintage' };
+    }
+    if (v.includes('bustling') || v.includes('energetic') || v.includes('lively') || v.includes('busy')) {
+      return { bgClass: 'bg-amber-500/15', borderClass: 'border-amber-500', textClass: 'text-amber-600 dark:text-amber-400', colorHex: '#f59e0b', icon: 'bolt' };
+    }
+    if (v.includes('artisan') || v.includes('creative') || v.includes('shop') || v.includes('craft')) {
+      return { bgClass: 'bg-indigo-500/15', borderClass: 'border-indigo-500', textClass: 'text-indigo-600 dark:text-indigo-400', colorHex: '#6366f1', icon: 'brush' };
+    }
+    if (v.includes('sacred') || v.includes('spiritual') || v.includes('temple') || v.includes('church') || v.includes('mosque') || v.includes('holy')) {
+      return { bgClass: 'bg-cyan-500/15', borderClass: 'border-cyan-500', textClass: 'text-cyan-600 dark:text-cyan-400', colorHex: '#06b6d4', icon: 'church' };
+    }
+    // Default/heritage vibe
+    return { bgClass: 'bg-rose-500/15', borderClass: 'border-rose-500', textClass: 'text-rose-600 dark:text-rose-400', colorHex: '#f43f5e', icon: 'spa' };
+  }
+
+  /**
+   * Cleans and renders new markers on the interactive map with vibe color-coding and vibe-filtering.
    */
   renderMapMarkers(data: CulturalPathData) {
     if (!this.map || !this.L || !this.markerGroup) return;
@@ -429,17 +547,10 @@ export class App implements OnDestroy {
       console.error('[CulturePath Map] Error placing primary center marker:', err);
     }
 
-    // Individual Cultural Nodes - Styled with Natural Tones: Sage & Terracotta
-    const configs: Record<string, { color: string; bgClass: string; borderClass: string; icon: string }> = {
-      attraction: { color: 'text-terracotta', bgClass: 'bg-terracotta/15', borderClass: 'border-terracotta', icon: 'photo_camera' },
-      hidden_gem: { color: 'text-sage', bgClass: 'bg-sage/15', borderClass: 'border-sage', icon: 'auto_awesome' },
-      heritage: { color: 'text-sage', bgClass: 'bg-sage/15', borderClass: 'border-sage', icon: 'history_edu' },
-      food: { color: 'text-terracotta', bgClass: 'bg-terracotta/15', borderClass: 'border-terracotta', icon: 'restaurant' },
-      shopping: { color: 'text-terracotta', bgClass: 'bg-terracotta/15', borderClass: 'border-terracotta', icon: 'shopping_bag' },
-      event: { color: 'text-sage', bgClass: 'bg-sage/15', borderClass: 'border-sage', icon: 'festival' }
-    };
-
+    // Individual Cultural Nodes - Styled dynamically by "vibe" and filtered in real-time
     if (data.nodes && Array.isArray(data.nodes)) {
+      const activeFilter = this.selectedVibeFilter();
+
       data.nodes.forEach((node) => {
         const nodeLat = this.parseFloatCoords(node.lat);
         const nodeLng = this.parseFloatCoords(node.lng);
@@ -449,13 +560,31 @@ export class App implements OnDestroy {
           return;
         }
 
-        const cfg = configs[node.type] || configs['attraction'];
+        const vibeStyle = this.getVibeStyle(node.vibe);
+
+        // Apply vibe-based filtration
+        if (activeFilter !== 'all') {
+          const nv = (node.vibe || '').toLowerCase();
+          if (activeFilter === 'quiet' && !(nv.includes('quiet') || nv.includes('reflective') || nv.includes('peaceful') || nv.includes('calm'))) {
+            return;
+          }
+          if (activeFilter === 'bustling' && !(nv.includes('bustling') || nv.includes('energetic') || nv.includes('lively') || nv.includes('busy'))) {
+            return;
+          }
+          if (activeFilter === 'artisan' && !(nv.includes('artisan') || nv.includes('creative') || nv.includes('shop') || nv.includes('craft'))) {
+            return;
+          }
+          if (activeFilter === 'sacred' && !(nv.includes('sacred') || nv.includes('spiritual') || nv.includes('temple') || nv.includes('church') || nv.includes('mosque') || nv.includes('holy'))) {
+            return;
+          }
+        }
+
         const nodeIcon = L.divIcon({
           className: 'node-marker-icon',
           html: `
-            <div class="group relative flex items-center justify-center transition-all hover:scale-125 duration-200">
-              <div class="w-8 h-8 rounded-full ${cfg.bgClass} border-2 ${cfg.borderClass} flex items-center justify-center ${cfg.color} bg-cream shadow-md shadow-sage/10">
-                <span class="material-icons text-sm font-semibold">${cfg.icon}</span>
+            <div class="group relative flex items-center justify-center transition-all hover:scale-125 duration-200" title="Vibe: ${node.vibe || 'Traditional'}">
+              <div class="w-8 h-8 rounded-full ${vibeStyle.bgClass} border-2 ${vibeStyle.borderClass} flex items-center justify-center ${vibeStyle.textClass} bg-cream shadow-md shadow-sage/10">
+                <span class="material-icons text-sm font-semibold">${vibeStyle.icon}</span>
               </div>
             </div>
           `,
@@ -467,13 +596,14 @@ export class App implements OnDestroy {
           const marker = L.marker([nodeLat, nodeLng], { icon: nodeIcon })
             .addTo(this.markerGroup)
             .bindPopup(`
-              <div class="p-1.5 font-sans max-w-[200px]">
+              <div class="p-1.5 font-sans max-w-[210px]">
                 <div class="flex items-center gap-1 mb-1">
-                  <span class="material-icons text-xs ${cfg.color}">${cfg.icon}</span>
-                  <span class="text-[9px] uppercase tracking-widest font-mono text-sage font-bold">${node.type.replace('_', ' ')}</span>
+                  <span class="material-icons text-xs ${vibeStyle.textClass}">${vibeStyle.icon}</span>
+                  <span class="text-[9px] uppercase tracking-widest font-mono text-sage font-bold">${node.vibe || node.type.replace('_', ' ')}</span>
                 </div>
                 <h4 class="font-display font-bold text-xs text-ink mb-1 leading-snug">${node.title}</h4>
-                <p class="text-[11px] text-ink/80 leading-normal mb-0">${node.description}</p>
+                <p class="text-[11px] text-ink/80 leading-normal mb-1">${node.description}</p>
+                <div class="text-[9px] font-mono text-sage italic border-t border-sage/10 pt-1 mt-1">Manners: ${node.etiquette_tips || 'Respect local customs.'}</div>
               </div>
             `);
 
@@ -487,6 +617,110 @@ export class App implements OnDestroy {
         }
       });
     }
+  }
+
+  // Feature 4: Memory Journaling / Keepsake Helpers
+  toggleVisited(nodeTitle: string) {
+    const current = { ...this.visitedNodes() };
+    if (current[nodeTitle]?.visited) {
+      current[nodeTitle] = {
+        ...current[nodeTitle],
+        visited: false
+      };
+    } else {
+      current[nodeTitle] = {
+        visited: true,
+        note: current[nodeTitle]?.note || '',
+        date: new Date().toLocaleDateString()
+      };
+    }
+    this.visitedNodes.set(current);
+    this.saveVisitedNodes();
+  }
+
+  updateNodeNote(nodeTitle: string, note: string) {
+    const current = { ...this.visitedNodes() };
+    if (!current[nodeTitle]) {
+      current[nodeTitle] = {
+        visited: false,
+        note: note,
+        date: new Date().toLocaleDateString()
+      };
+    } else {
+      current[nodeTitle] = {
+        ...current[nodeTitle],
+        note: note
+      };
+    }
+    this.visitedNodes.set(current);
+    this.saveVisitedNodes();
+  }
+
+  saveVisitedNodes() {
+    if (!isPlatformBrowser(this.platformId)) return;
+    try {
+      const encrypted = this.encrypt(JSON.stringify(this.visitedNodes()));
+      localStorage.setItem('culture_visited_nodes', encrypted);
+    } catch (e) {
+      console.warn('Failed saving visited nodes:', e);
+    }
+  }
+
+  loadVisitedNodes() {
+    if (!isPlatformBrowser(this.platformId)) return;
+    try {
+      const stored = localStorage.getItem('culture_visited_nodes');
+      if (stored) {
+        const decrypted = this.decrypt(stored);
+        if (decrypted) {
+          this.visitedNodes.set(JSON.parse(decrypted));
+        }
+      }
+    } catch (e) {
+      console.warn('Failed loading visited nodes:', e);
+    }
+  }
+
+  generateTravelogue() {
+    const data = this.currentData();
+    if (!data) return;
+
+    // Filter currently visited nodes
+    const visitedList = data.nodes
+      .filter(node => this.visitedNodes()[node.title]?.visited)
+      .map(node => ({
+        title: node.title,
+        note: this.visitedNodes()[node.title]?.note || ''
+      }));
+
+    if (visitedList.length === 0) {
+      this.travelogueError.set('Please mark at least one story landmark as "Visited" in your Journal to compile your travelogue!');
+      return;
+    }
+
+    this.generatingTravelogue.set(true);
+    this.travelogueError.set(null);
+    this.travelogueResult.set(null);
+
+    this.http.post<{ travelogue: string }>('/api/travelogue', {
+      location: data.location_name,
+      visits: visitedList
+    }).subscribe({
+      next: (res) => {
+        this.travelogueResult.set(res.travelogue);
+        this.generatingTravelogue.set(false);
+      },
+      error: (err) => {
+        console.error('[CulturePath UI] Error compiling travelogue:', err);
+        this.travelogueError.set(err?.error?.error || 'Failed to synthesize travelogue. Please try again.');
+        this.generatingTravelogue.set(false);
+      }
+    });
+  }
+
+  clearTravelogue() {
+    this.travelogueResult.set(null);
+    this.travelogueError.set(null);
   }
 
   /**
