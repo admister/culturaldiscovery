@@ -1,15 +1,29 @@
+// @vitest-environment jsdom
+import '@angular/compiler';
+import { Injector, runInInjectionContext, PLATFORM_ID } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { BrowserDynamicTestingModule, platformBrowserDynamicTesting } from '@angular/platform-browser-dynamic/testing';
 import { HttpClient } from '@angular/common/http';
 import { of, Observable } from 'rxjs';
 import { App, CulturalPathData, CulturalNode } from './app';
-import { PLATFORM_ID } from '@angular/core';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+
+// Initialize Angular TestBed environment for Vitest
+try {
+  TestBed.initTestEnvironment(
+    BrowserDynamicTestingModule,
+    platformBrowserDynamicTesting()
+  );
+} catch {
+  // Catch already-initialized environment in watch mode
+}
 
 describe('App Component Unit Tests', () => {
   let app: App;
   let mockHttp: { post: () => Observable<CulturalPathData> };
 
   beforeEach(async () => {
+    TestBed.resetTestingModule();
     mockHttp = {
       post: () => of({
         location_name: 'Kyoto, Japan',
@@ -31,15 +45,16 @@ describe('App Component Unit Tests', () => {
     };
 
     await TestBed.configureTestingModule({
-      imports: [App],
       providers: [
         { provide: HttpClient, useValue: mockHttp },
-        { provide: PLATFORM_ID, useValue: 'browser' }
+        { provide: PLATFORM_ID, useValue: 'server' }
       ]
     }).compileComponents();
 
-    const fixture = TestBed.createComponent(App);
-    app = fixture.componentInstance;
+    const testBedInjector = TestBed.inject(Injector);
+    runInInjectionContext(testBedInjector, () => {
+      app = new App();
+    });
   });
 
   it('should create the app component', () => {
@@ -121,6 +136,23 @@ describe('App Component Unit Tests', () => {
         configurable: true,
         writable: true
       });
+
+      // Mock SpeechSynthesisUtterance constructor globally for testing
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (globalThis as any).SpeechSynthesisUtterance = class {
+        text: string;
+        constructor(text: string) {
+          this.text = text;
+        }
+        voice = null;
+        rate = 1;
+        pitch = 1;
+        onend = null;
+        onerror = null;
+      };
+
+      // Temporarily mock platformId to 'browser' for TTS test
+      app['platformId'] = 'browser';
 
       app.speakStory('A great testing narrative.');
       expect(app.isSpeaking()).toBe(true);
