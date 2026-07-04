@@ -103,7 +103,9 @@
       <div class="w-12 h-12 rounded-full bg-terracotta/10 border border-terracotta/30 flex items-center justify-center text-terracotta mb-4">
         <mat-icon class="text-xl">error_outline</mat-icon>
       </div>
-      <h3 class="text-base font-bold text-ink mb-2">Connection Timeout</h3>
+      <h3 class="text-base font-bold text-ink mb-2">
+        {{ error()?.includes('recognized') ? 'Location Not Found' : 'Search Connection Issue' }}
+      </h3>
       <p class="text-xs text-sage leading-relaxed mb-6">{{ error() }}</p>
       <button
         (click)="search('Kyoto, Japan')"

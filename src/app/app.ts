@@ -25,6 +25,7 @@ export interface CulturalNode {
 
 export interface CulturalPathData {
   location_name: string;
+  invalid_location?: boolean;
   coordinates: {
     lat: number;
     lng: number;
@@ -517,6 +518,13 @@ export class App implements OnDestroy {
 
     this.http.post<CulturalPathData>('/api/culture', { location }).subscribe({
       next: (data) => {
+        if (data && data.invalid_location) {
+          this.loading.set(false);
+          this.stopLoadingPhrases();
+          this.error.set(`"${location}" could not be recognized as a valid, known geographic location. Please check your spelling or search for a different place (e.g., Jaipur, Kyoto, Paris).`);
+          return;
+        }
+
         this.cache.set(norm, data);
         this.saveToLocalStorage(norm, data);
 

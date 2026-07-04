@@ -72,6 +72,7 @@ app.post('/api/culture', async (req, res) => {
       contents: `Provide travel and cultural insights for the location: "${location}".`,
       config: {
         systemInstruction: `You are the "CulturePath" Cultural Concierge. Your mission is to provide authentic, immersive travel data for a location provided by the user.
+If the location provided by the user represents an unrecognized, fictitious, gibberish, or invalid geographic place on Earth, you MUST set the 'invalid_location' field to true in the returned JSON structure.
 You MUST provide coordinates (lat, lng) for the central location (usually the city center) and a rich list of 8 to 10 cultural nodes across different categories (one of: 'attraction', 'hidden_gem', 'heritage', 'food', 'shopping', 'event') for Leaflet mapping.
 Crucially, you MUST include at least 3 'attraction' nodes (famous landmarks) and at least 3 'hidden_gem' nodes (off-the-beaten-path secrets) in the 'nodes' array, and they must have accurate, authentic coordinates and descriptions.
 Ensure that the output strictly adheres to the requested JSON schema. Do not include markdown codeblocks or extra text; return ONLY the valid JSON object.`,
@@ -80,6 +81,7 @@ Ensure that the output strictly adheres to the requested JSON schema. Do not inc
           type: Type.OBJECT,
           properties: {
             location_name: { type: Type.STRING },
+            invalid_location: { type: Type.BOOLEAN, description: "Set to true ONLY if the requested location represents an unrecognized, fictitious, empty, gibberish, or invalid geographic place on Earth." },
             coordinates: {
               type: Type.OBJECT,
               properties: {
